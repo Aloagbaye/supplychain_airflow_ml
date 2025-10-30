@@ -73,7 +73,7 @@ Scheduler and API server had mismatched JWT signing keys.
 Add consistent environment variables to *all services*:
 
 ```yaml
-- AIRFLOW__CORE__FERNET_KEY=R6ehOpzwFbeurTXYT6EnRShI8DOWo9m62fsMvZZ5oHw=
+- AIRFLOW__CORE__FERNET_KEY=secretfernetkey
 - AIRFLOW__CORE__EXECUTION_API_JWT_SECRET_KEY=supersecretjwtkey
 ```
 

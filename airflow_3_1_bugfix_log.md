@@ -166,7 +166,7 @@ docker cp ./data/raw <scheduler>:/opt/airflow/data/raw
 ```yaml
 environment:
   - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-  - AIRFLOW__CORE__FERNET_KEY=R6ehOpzwFbeurTXYT6EnRShI8DOWo9m62fsMvZZ5oHw=
+  - AIRFLOW__CORE__FERNET_KEY=secretfernetkey
   - AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
   - AIRFLOW__CORE__EXECUTION_API_JWT_SECRET_KEY=supersecretjwtkey
   - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth

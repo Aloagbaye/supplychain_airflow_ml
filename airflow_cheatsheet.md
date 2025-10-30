@@ -148,7 +148,7 @@ project/
 ## 📚 Resources
 - [Airflow Docs](https://airflow.apache.org/docs/)
 - [Airflow Providers](https://airflow.apache.org/docs/apache-airflow-providers/)
-- [Common DAG Examples](https://github.com/apache/airflow/tree/main/airflow/example_dags)
+- [MLOPs Use Case Example](https://airflow.apache.org/use-cases/mlops/)
 
 ---
 

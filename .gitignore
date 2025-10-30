@@ -1,1 +1,5 @@
-data/rawdata/raw/
+data/
+.venv
+.env
+__pycache__/
+

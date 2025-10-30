@@ -1,0 +1,198 @@
+# 🛠️ Airflow 3.1 – Supply Chain Forecasting Project Bug Fix Log
+
+## 📘 Project Context
+Dockerized **Apache Airflow 3.1.0** (LocalExecutor) pipeline for M5 Forecasting dataset preprocessing and model training.
+
+---
+
+## 🧩 1. Webserver Command Removed
+**Error:**
+```
+airflow command error: argument GROUP_OR_COMMAND: Command `airflow webserver` has been removed.
+```
+
+**Cause:**  
+In Airflow 3.x, `webserver` was replaced by `api-server`.
+
+**Fix:**  
+Use `command: api-server` in `docker-compose.yml`.
+
+---
+
+## 🧱 2. Missing DAGs in Airflow UI
+**Symptom:** DAGs didn’t appear after container startup.
+
+**Cause:**  
+DAG files existed in the container, but Airflow didn’t detect them due to path/volume mount mismatch.
+
+**Fix:**
+```yaml
+volumes:
+  - ./dags:/opt/airflow/dags
+```
+and confirm in container:
+```bash
+docker exec -it <api-server> bash
+ls /opt/airflow/dags
+```
+
+---
+
+## ⚙️ 3. LocalExecutor Connection Refused
+**Error:**
+```
+httpx.ConnectError: [Errno 111] Connection refused
+```
+
+**Cause:**  
+Scheduler couldn’t reach the execution API endpoint.
+
+**Fix (Airflow 3.1):**
+```yaml
+AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
+```
+This replaces deprecated `AIRFLOW__SUPERVISOR__API_URI`.
+
+**Verification:**
+```bash
+curl http://api-server:8080/execution/health
+```
+
+---
+
+## 🔐 4. Invalid Auth Token: Signature Verification Failed
+**Error:**
+```
+airflow.sdk.api.client.ServerResponseError: Invalid auth token: Signature verification failed
+```
+
+**Cause:**  
+Scheduler and API server had mismatched JWT signing keys.
+
+**Fix:**
+Add consistent environment variables to *all services*:
+
+```yaml
+- AIRFLOW__CORE__FERNET_KEY=R6ehOpzwFbeurTXYT6EnRShI8DOWo9m62fsMvZZ5oHw=
+- AIRFLOW__CORE__EXECUTION_API_JWT_SECRET_KEY=supersecretjwtkey
+```
+
+**Verification:**
+```bash
+docker exec -it <scheduler> env | grep FERNET
+docker exec -it <api-server> env | grep FERNET
+```
+
+---
+
+## 📂 5. File Permission Errors in `/opt/airflow/data`
+**Error:**
+```
+PermissionError: [Errno 13] Permission denied: 'data/processed/m5_processed.parquet'
+```
+
+**Cause:**  
+Host-mounted `./data` directory owned by `root`, not writable by container user `airflow`.
+
+**Fix Options:**
+1. Quick:
+   ```bash
+   chmod -R 777 ./data
+   ```
+2. In container (as root):
+   ```bash
+   docker exec -u 0 <scheduler> bash -c "chown -R airflow:root /opt/airflow/data && chmod -R 775 /opt/airflow/data"
+   ```
+3. Persistent:
+   ```yaml
+   user: "${AIRFLOW_UID:-50000}:0"
+   environment:
+     - AIRFLOW_UID=50000
+   ```
+
+---
+
+## 🧾 6. Rebuilding Docker After Volume Errors
+**Error:**
+```
+service "scheduler" refers to undefined volume airflow_logs
+```
+
+**Cause:**  
+Volume declared in service but missing under global `volumes:` section.
+
+**Fix:**
+Add all volume definitions at bottom of `docker-compose.yml`:
+```yaml
+volumes:
+  postgres_data:
+  airflow_data:
+  airflow_logs:
+  airflow_plugins:
+```
+
+---
+
+## 🧹 7. Data Folder Cleanup (Nested Folder)
+**Issue:** Accidentally copied files into `/opt/airflow/data/raw/raw/`.
+
+**Fix:**
+```bash
+docker exec -u 0 <scheduler> bash -c "mv /opt/airflow/data/raw/raw/* /opt/airflow/data/raw/ && rm -rf /opt/airflow/data/raw/raw"
+```
+
+---
+
+## 💾 8. Using a Named Volume for Airflow Data (Recommended)
+To avoid host permission mismatches:
+```yaml
+volumes:
+  - airflow_data:/opt/airflow/data
+```
+
+Then copy data into the container:
+```bash
+docker cp ./data/raw <scheduler>:/opt/airflow/data/raw
+```
+
+---
+
+## ✅ Final Working Compose Highlights
+```yaml
+environment:
+  - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+  - AIRFLOW__CORE__FERNET_KEY=R6ehOpzwFbeurTXYT6EnRShI8DOWo9m62fsMvZZ5oHw=
+  - AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
+  - AIRFLOW__CORE__EXECUTION_API_JWT_SECRET_KEY=supersecretjwtkey
+  - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+volumes:
+  - ./dags:/opt/airflow/dags
+  - ./logs:/opt/airflow/logs
+  - ./plugins:/opt/airflow/plugins
+  - airflow_data:/opt/airflow/data
+user: "${AIRFLOW_UID:-50000}:0"
+
+volumes:
+  postgres_data:
+  airflow_data:
+```
+
+---
+
+## 🏁 9. Verification Checklist
+
+| Test | Expected Result |
+|------|-----------------|
+| `curl http://api-server:8080/execution/health` | `{ "status": "healthy" }` |
+| DAG visible in UI | ✅ |
+| Task state: `queued → running → success` | ✅ |
+| `ls /opt/airflow/data/processed` | contains `.parquet` output |
+
+---
+
+## 🧠 Summary
+After these fixes:
+- Airflow 3.1 stack runs cleanly with LocalExecutor.
+- Scheduler ↔ API communication works (JWT + FERNET aligned).
+- File permissions fixed for data preprocessing DAG.
+- Docker volumes properly declared and reusable.

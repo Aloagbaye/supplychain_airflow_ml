@@ -1,22 +1,126 @@
-version: '3'
 services:
-  airflow:
-    image: apache/airflow:2.8.1
+  postgres:
+    image: postgres:14
     environment:
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - AIRFLOW__CORE__FERNET_KEY=temporary_fernet_key
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: always
+
+  airflow-init:
+    image: apache/airflow:3.1.0
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__CORE__AUTH_MANAGER=airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      - AIRFLOW__CORE__ENABLE_XCOM_PICKLING=True
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
+      - AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
+
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo 'Waiting for PostgreSQL...'
+        until pg_isready -h postgres -U airflow -d airflow; do
+          echo 'PostgreSQL not ready, waiting...'
+          sleep 2
+        done
+        echo 'PostgreSQL is ready!'
+        airflow db migrate
+        if ! airflow users list 2>/dev/null | grep -q 'admin'; then
+          airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin
+          echo 'Admin user created!'
+        else
+          echo 'Admin user already exists!'
+        fi
+        echo 'Initialization complete!'
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
-      - ./data:/opt/airflow/data
-      - ./models:/opt/airflow/models
+      - ./plugins:/opt/airflow/plugins
+      - airflow_data_raw:/opt/airflow/data/raw
+      - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_models:/opt/airflow/models
+      - airflow_logs:/opt/airflow/logs
+    restart: on-failure
+
+  api-server:
+    image: apache/airflow:3.1.0
+    env_file:
+      - .env
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
     ports:
-      - "8080:8080"
-    command: bash -c "airflow db init && airflow users create \
-        --username admin \
-        --password admin \
-        --firstname Admin \
-        --lastname User \
-        --role Admin \
-        --email admin@example.com && airflow webserver & airflow scheduler"
+      - "8081:8080"
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__CORE__AUTH_MANAGER=airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      - AIRFLOW__CORE__ENABLE_XCOM_PICKLING=True
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
+      - AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./plugins:/opt/airflow/plugins
+      - airflow_data_raw:/opt/airflow/data/raw
+      - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_models:/opt/airflow/models
+      - airflow_logs:/opt/airflow/logs
+    command: api-server
+
+  scheduler:
+    image: apache/airflow:3.1.0
+    env_file:
+      - .env
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+  
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__CORE__AUTH_MANAGER=airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      - AIRFLOW__CORE__ENABLE_XCOM_PICKLING=True
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
+      - AIRFLOW__CORE__EXECUTION_API_SERVER_URL=http://api-server:8080/execution/
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./plugins:/opt/airflow/plugins
+      - airflow_data_raw:/opt/airflow/data/raw
+      - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_models:/opt/airflow/models
+      - airflow_logs:/opt/airflow/logs
+    command: scheduler
+
+volumes:
+  postgres_data:
+  airflow_data_raw:
+  airflow_data_processed:
+  airflow_models:
+  airflow_logs:

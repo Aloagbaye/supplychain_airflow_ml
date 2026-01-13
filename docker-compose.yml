@@ -16,7 +16,7 @@ services:
     restart: always
 
   airflow-init:
-    image: apache/airflow:3.1.0
+    image: airflow-custom:3.1.0
     env_file:
       - .env
     depends_on:
@@ -61,7 +61,7 @@ services:
     restart: on-failure
 
   api-server:
-    image: apache/airflow:3.1.0
+    image: airflow-custom:3.1.0
     env_file:
       - .env
     restart: always
@@ -91,7 +91,7 @@ services:
     command: api-server
 
   scheduler:
-    image: apache/airflow:3.1.0
+    image: airflow-custom:3.1.0
     env_file:
       - .env
     restart: always
@@ -118,9 +118,32 @@ services:
       - airflow_logs:/opt/airflow/logs
     command: scheduler
 
+  fastapi-service:
+    build: .
+    image: airflow-custom:3.1.0
+    command: uvicorn scripts.predict_service:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./scripts:/opt/airflow/scripts
+      - airflow_models:/opt/airflow/models
+      - airflow_outputs:/opt/airflow/outputs
+    depends_on:
+      - scheduler
+
+  monitoring-dashboard:
+    image: streamlit/streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - airflow_outputs:/data
+    command: streamlit run /data/dashboard.py
+
+
 volumes:
   postgres_data:
   airflow_data_raw:
   airflow_data_processed:
   airflow_models:
   airflow_logs:
+  airflow_outputs:

@@ -2,53 +2,48 @@ import os
 import pandas as pd
 from pathlib import Path
 
-RAW_PATH = Path("data/raw")
-PROCESSED_PATH = Path("data/processed")
+RAW = Path("/opt/airflow/data/raw")
+OUT = Path("/opt/airflow/data/processed")
+OUT.mkdir(parents=True, exist_ok=True)
 
-NUMBER_OF_ITEMS = 10
+def preprocess_m5(sample_items: int = 1000):
+    print("🚀 Starting M5 preprocessing → Nixtla long format (unique_id, ds, y)")
 
-def preprocess_m5(sample_size: int = NUMBER_OF_ITEMS):
-    print("🚀 Starting M5 preprocessing (sampled subset)...")
+    # Load raw CSVs
+    sales = pd.read_csv(RAW / "sales_train_validation.csv")
+    calendar = pd.read_csv(RAW / "calendar.csv")  # contains mapping d -> date
+    # prices not needed for baseline; keep if you need future features:
+    # prices = pd.read_csv(RAW / "sell_prices.csv")
 
-    # --- Load data ---
-    sales = pd.read_csv(RAW_PATH / "sales_train_validation.csv")
-    calendar = pd.read_csv(RAW_PATH / "calendar.csv")
-    prices = pd.read_csv(RAW_PATH / "sell_prices.csv")
+    # Limit items for speed
+    item_ids = sales["item_id"].unique()[:sample_items]
+    sales = sales[sales["item_id"].isin(item_ids)].copy()
 
-    # --- Limit to a few items for fast processing ---
-    unique_items = sales["item_id"].unique()[:sample_size]
-    sales = sales[sales["item_id"].isin(unique_items)]
-
-    print(f"Selected {len(unique_items)} items out of {sales['item_id'].nunique()} total.")
-
-    # --- Reshape sales data ---
-    sales_melted = sales.melt(
-        id_vars=["id", "item_id", "dept_id", "cat_id", "store_id", "state_id"],
-        var_name="day",
-        value_name="demand"
+    # Melt daily columns (d_1 ... d_1913) to long
+    id_cols = ["id","item_id","dept_id","cat_id","store_id","state_id"]
+    long = sales.melt(
+        id_vars=id_cols,
+        var_name="d",
+        value_name="y"  # rename demand -> y for Nixtla
     )
 
-    # --- Merge with calendar ---
-    data = sales_melted.merge(
-        calendar[["d", "date", "wm_yr_wk", "weekday", "month", "year"]],
-        left_on="day", right_on="d", how="left"
-    ).drop(columns=["d"])
+    # Map d -> date and rename to ds
+    cal = calendar[["d","date"]].rename(columns={"date":"ds"})
+    long = long.merge(cal, on="d", how="left").drop(columns=["d"])
 
-    # --- Merge with prices ---
-    data = data.merge(prices, on=["store_id", "item_id", "wm_yr_wk"], how="left")
+    # Build Nixtla schema
+    long = long.rename(columns={"item_id":"unique_id"})
+    long["ds"] = pd.to_datetime(long["ds"])
+    # Ensure numeric
+    long["y"] = pd.to_numeric(long["y"], errors="coerce").fillna(0)
 
-    # --- Feature engineering ---
-    data["date"] = pd.to_datetime(data["date"])
-    data["day_of_week"] = data["date"].dt.dayofweek
-    data["is_weekend"] = data["day_of_week"].isin([5, 6]).astype(int)
+    # (Optional) keep only needed columns for StatsForecast
+    nixtla_df = long[["unique_id","ds","y"]].sort_values(["unique_id","ds"])
 
-    # --- Save subset ---
-    PROCESSED_PATH.mkdir(parents=True, exist_ok=True)
-    output_path = PROCESSED_PATH / "m5_processed.parquet"
-    data.to_parquet(output_path, index=False)
-
-    print(f"✅ Saved processed dataset → {output_path}")
-    print(f"Rows: {len(data):,}, Columns: {len(data.columns)}")
+    # Save final parquet
+    out_path = OUT / "m5_processed_nixtla.parquet"
+    nixtla_df.to_parquet(out_path, index=False)
+    print(f"✅ Saved Nixtla-ready data → {out_path} | rows={len(nixtla_df):,}")
 
 if __name__ == "__main__":
-    preprocess_m5(sample_size=NUMBER_OF_ITEMS)
+    preprocess_m5(sample_items=1000)

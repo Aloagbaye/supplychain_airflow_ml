@@ -276,7 +276,7 @@ If ports 8081, 8000, or 8501 are already in use, modify the port mappings in `do
 
 ## 📄 License
 
-[Add your license information here]
+MIT License
 
 ## 👤 Author
 

@@ -266,14 +266,6 @@ If ports 8081, 8000, or 8501 are already in use, modify the port mappings in `do
 - Model artifacts are stored in `/opt/airflow/models/`
 - Predictions are logged to `/opt/airflow/outputs/`
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
 ## 📄 License
 
 MIT License

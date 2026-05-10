@@ -56,8 +56,10 @@ services:
       - ./plugins:/opt/airflow/plugins
       - airflow_data_raw:/opt/airflow/data/raw
       - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_data_predictions:/opt/airflow/data/predictions
       - airflow_models:/opt/airflow/models
       - airflow_logs:/opt/airflow/logs
+      - airflow_outputs:/opt/airflow/outputs
     restart: on-failure
 
   api-server:
@@ -86,8 +88,10 @@ services:
       - ./plugins:/opt/airflow/plugins
       - airflow_data_raw:/opt/airflow/data/raw
       - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_data_predictions:/opt/airflow/data/predictions
       - airflow_models:/opt/airflow/models
       - airflow_logs:/opt/airflow/logs
+      - airflow_outputs:/opt/airflow/outputs
     command: api-server
 
   scheduler:
@@ -114,8 +118,10 @@ services:
       - ./plugins:/opt/airflow/plugins
       - airflow_data_raw:/opt/airflow/data/raw
       - airflow_data_processed:/opt/airflow/data/processed
+      - airflow_data_predictions:/opt/airflow/data/predictions
       - airflow_models:/opt/airflow/models
       - airflow_logs:/opt/airflow/logs
+      - airflow_outputs:/opt/airflow/outputs
     command: scheduler
 
   fastapi-service:
@@ -132,18 +138,27 @@ services:
       - scheduler
 
   monitoring-dashboard:
-    image: streamlit/streamlit
+    image: python:3.11-slim
     ports:
       - "8501:8501"
     volumes:
-      - airflow_outputs:/data
-    command: streamlit run /data/dashboard.py
+      - ./scripts:/app/scripts
+      - airflow_data_predictions:/data/predictions
+      - airflow_models:/data/models
+    working_dir: /app
+    command: >
+      bash -c "pip install --quiet streamlit pandas pyarrow &&
+               streamlit run scripts/dashboard.py
+               --server.port=8501
+               --server.address=0.0.0.0
+               --server.headless=true"
 
 
 volumes:
   postgres_data:
   airflow_data_raw:
   airflow_data_processed:
+  airflow_data_predictions:
   airflow_models:
   airflow_logs:
   airflow_outputs:
